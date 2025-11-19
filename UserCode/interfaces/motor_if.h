@@ -292,7 +292,7 @@ static inline void Motor_ResetAngle(const MotorType_t motor_type, void* hmotor)
     {
 #ifdef USE_DJI
     case MOTOR_TYPE_DJI:
-        DJI_ResetAngle(hmotor);
+        DJI_ResetAngle((DJI_t*)hmotor);
         break;
 #endif
 #ifdef USE_TB6612
