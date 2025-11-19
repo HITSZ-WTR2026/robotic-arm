@@ -1,12 +1,12 @@
 #include "app.h"
 
-#include "can.h"
-#include "tim.h"
 
-#include "interfaces/motor_if.h"
+#include "stdio.h"
 
 #ifdef __cplusplus
 extern "C" {
+
+XGZP6847D xgzp_sensor(&hi2c1, 200.0f); // 创建传感器对象，量程200kPa
 
 UnitreeMotor* g_motor = NULL;
 
@@ -91,6 +91,12 @@ float tau_Cal(float angle)
 
 void Init(void* argument)
 {
+    float pressure    = 0.0f;
+    float temperature = 0.0f;
+
+    pressure    = xgzp_sensor.readPressure();    // 读取压力值
+    temperature = xgzp_sensor.readTemperature(); // 读取温度值
+
     g_motor = Unitree_Create_Motor();
     if (Unitree_init(g_motor, &UART_UNITREE_HANDLER, ID) != HAL_OK)
     {

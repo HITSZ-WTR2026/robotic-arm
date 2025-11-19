@@ -7,6 +7,7 @@
 #include "drivers/Unitree_user.h"
 #include "drivers/motor_control.h"
 #include "drivers/ris_protocol.h"
+#include "drivers/xgzp6847d.h"
 #include "interfaces/motor_if.h"
 
 
