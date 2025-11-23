@@ -22,6 +22,7 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
 {
     Motor_PosCtrlUpdate(&pos_dji); // 进行 PID 计算
 
+    
     // TransmitData();
     // 发送控制信号
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
