@@ -17,29 +17,29 @@ Motor_PosCtrl_t pos_dji;
 MotorPID_t Unitree_PID;
 
 
+float Unitree_target_pos = 0.0f;
 
-void Unitree_PID_OutPut(MotorPID_t *Unitree_PID, UnitreeMotor* g_motor, float Unitree_target_pos)
+void Unitree_PID_OutPut(MotorPID_t* Unitree_PID, UnitreeMotor* g_motor, float Unitree_target_pos)
 {
-    Unitree_PID->fdb = g_motor->data.Pos;   // pid位置反馈值为宇树电机位置返回值
+    Unitree_PID->fdb = g_motor->data.Pos; // pid位置反馈值为宇树电机位置返回值
     MotorPID_Calculate(Unitree_PID);
     Unitree_UART_tranANDrev(g_motor,
-                                ID,
-                                1,                     // mode
-                                Unitree_PID->output,   // tau
-                                0.0f,                  // W
-                                Unitree_target_pos,    // Pos
-                                0.0f,                  // K_P
-                                0.0f                   // K_W
-                            );
-                            
+                            ID,
+                            1,                   // mode
+                            Unitree_PID->output, // tau
+                            0.0f,                // W
+                            Unitree_target_pos,  // Pos
+                            0.0f,                // K_P
+                            0.0f                 // K_W
+    );
 }
 
-void Unitree_PID_Init(MotorPID_t *Unitree_PID)
+void Unitree_PID_Init(MotorPID_t* Unitree_PID)
 {
-    Unitree_PID->Kp                 = 0.0f;
-    Unitree_PID->Ki                 = 0.0f;
-    Unitree_PID->Kd                 = 0.0f;
-    Unitree_PID->abs_output_max     = 0.0f;
+    Unitree_PID->Kp             = 0.0f;
+    Unitree_PID->Ki             = 0.0f;
+    Unitree_PID->Kd             = 0.0f;
+    Unitree_PID->abs_output_max = 0.0f;
 }
 
 
@@ -57,7 +57,7 @@ void TIM_Callback(TIM_HandleTypeDef* htim)
     DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_1_4);
     // DJI_SendSetIqCommand(&hcan1, IQ_CMD_GROUP_5_8);
 
-    Unitree_PID_OutPut(Unitree_PID, g_motor, Unitree_target_pos);
+    Unitree_PID_OutPut(&Unitree_PID, g_motor, Unitree_target_pos);
 }
 
 void DJI_Control_Init()
@@ -104,7 +104,6 @@ void DJI_Control_Init()
 }
 
 float target_angle = 0.0f;
-float Unitree_target_pos = 0.0f;
 // // 使用时需要修改为对应的电机ID，串口句柄，kp，kd参数，与RE，DE引脚设置（在Unitree_user.h）
 
 // // 前馈力矩计算
@@ -135,8 +134,8 @@ void Init(void* argument)
         Error_Handler();
     }
 
-    DJI_Control_Init(); // 初始化大疆电机
-    Unitree_PID_Init(&Unitree_PID);     // 初始化宇树电机pid参数
+    DJI_Control_Init();             // 初始化大疆电机
+    Unitree_PID_Init(&Unitree_PID); // 初始化宇树电机pid参数
     osThreadExit();
 }
 
