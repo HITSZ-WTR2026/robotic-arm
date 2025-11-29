@@ -49,10 +49,18 @@ namespace Arm
 
         /**
          * @brief 设置关节目标角度 (关节空间控制)
-         * @param q1 大臂角度 (rad)
-         * @param q2 小臂角度 (rad)
+         * @param q1 大臂目标角度 (degree)
+         * @param q2 小臂目标角度 (degree)
+         * @param t1 大臂运动时间 (s)
+         * @param t2 小臂运动时间 (s)
          */
-        void setJointTarget(float q1, float q2);
+        void setJointTarget(float q1, float q2, float t1, float t2);
+
+        /**
+         * @brief 查询关节是否都已到达目标
+         * @return true 已到达, false 运动中
+         */
+        bool isArrived() const;
 
         /**
          * @brief 控制夹爪开合
@@ -61,10 +69,11 @@ namespace Arm
         void setGripper(float open_width);
 
         /**
-         * @brief 更新控制回路 (需周期性调用, e.g. 1kHz)
+         * @brief 更新控制回路 (需周期性调用)
+         * @param dt 距离上一次调用的时间间隔 (s)
          * @note 此函数会计算重力补偿并更新电机
          */
-        void update();
+        void update(float dt);
 
         /**
          * @brief 正运动学求解 (FK)
@@ -80,6 +89,38 @@ namespace Arm
 
     private:
         /**
+         * @brief 五次多项式轨迹规划器
+         */
+        struct QuinticTrajectory
+        {
+            float c0, c1, c2, c3, c4, c5; // 多项式系数
+            float current_time;           // 当前运行时间
+            float total_time;             // 总运行时间
+            float target_pos;             // 最终目标位置 (用于修正浮点误差)
+            bool running;                 // 是否正在运行
+
+            QuinticTrajectory() :
+                running(false) {}
+
+            /**
+             * @brief 规划轨迹
+             * @param start_pos 起始位置
+             * @param start_vel 起始速度
+             * @param end_pos 结束位置
+             * @param time 运行时间
+             */
+            void plan(float start_pos, float start_vel, float end_pos, float time);
+
+            /**
+             * @brief 计算当前时刻的位置和速度
+             * @param dt 时间增量
+             * @param pos [out] 位置
+             * @param vel [out] 速度
+             */
+            void step(float dt, float& pos, float& vel);
+        };
+
+        /**
          * @brief 计算重力补偿力矩
          * @param q1 当前大臂角度
          * @param q2 当前小臂角度
@@ -94,8 +135,11 @@ namespace Arm
 
         Config config_;
 
-        float target_q1_;
-        float target_q2_;
+        QuinticTrajectory traj_q1_;
+        QuinticTrajectory traj_q2_;
+
+        float current_q1_ref_; // 当前规划的位置参考值
+        float current_q2_ref_;
         float target_gripper_;
     };
 
