@@ -97,9 +97,9 @@ namespace Arm
     // Controller Implementation
     // ============================================================================
 
-    Controller::Controller(Motor& joint1, Motor& joint2, Motor& gripper, const Config& config) :
-        joint1_(joint1), joint2_(joint2), gripper_(gripper), config_(config),
-        current_q1_ref_(0.0f), current_q2_ref_(0.0f), target_gripper_(0.0f)
+    Controller::Controller(Motor& joint1, Motor& joint2, Motor& joint3, const Config& config) :
+        joint1_(joint1), joint2_(joint2), joint3_(joint3), config_(config),
+        current_q1_ref_(0.0f), current_q2_ref_(0.0f), current_q3_ref_(0.0f)
     {
     }
 
@@ -107,19 +107,22 @@ namespace Arm
     {
         // 读取初始位置作为目标位置，防止上电跳变
         // 注意: getAngle 返回弧度，这里转换为度存储在内部状态中
-        float q1_deg = joint1_.getAngle() * RAD_TO_DEG;
-        float q2_deg = joint2_.getAngle() * RAD_TO_DEG;
+        // 考虑减速比: 关节角度 = 电机角度 / 减速比
+        float q1_deg = (joint1_.getAngle() / config_.reduction_1) * RAD_TO_DEG;
+        float q2_deg = (joint2_.getAngle() / config_.reduction_2) * RAD_TO_DEG;
+        float q3_deg = (joint3_.getAngle() / config_.reduction_3) * RAD_TO_DEG;
 
         current_q1_ref_ = q1_deg;
         current_q2_ref_ = q2_deg;
-        target_gripper_ = gripper_.getAngle() * RAD_TO_DEG; // 假设 gripper 也是弧度接口
+        current_q3_ref_ = q3_deg;
 
         // 初始化轨迹为当前位置，速度为0
         traj_q1_.plan(q1_deg, 0, q1_deg, 0);
         traj_q2_.plan(q2_deg, 0, q2_deg, 0);
+        traj_q3_.plan(q3_deg, 0, q3_deg, 0);
     }
 
-    void Controller::setJointTarget(float q1, float q2, float t1, float t2)
+    void Controller::setJointTarget(float q1, float q2, float q3, float t1, float t2, float t3)
     {
         // 获取当前状态作为起点 (解决速度跳变问题)
         // 使用当前规划器的输出作为起点可能比使用传感器反馈更平滑，
@@ -127,99 +130,115 @@ namespace Arm
         // 位置则使用当前规划的参考位置，避免因控制误差导致的轨迹回跳。
 
         float start_q1 = current_q1_ref_;
-        float start_v1 = joint1_.getVelocity() * RAD_TO_DEG;
+        // 关节速度 = 电机速度 / 减速比
+        float start_v1 = (joint1_.getVelocity() / config_.reduction_1) * RAD_TO_DEG;
 
         float start_q2 = current_q2_ref_;
-        float start_v2 = joint2_.getVelocity() * RAD_TO_DEG;
+        float start_v2 = (joint2_.getVelocity() / config_.reduction_2) * RAD_TO_DEG;
+
+        float start_q3 = current_q3_ref_;
+        float start_v3 = (joint3_.getVelocity() / config_.reduction_3) * RAD_TO_DEG;
 
         traj_q1_.plan(start_q1, start_v1, q1, t1);
         traj_q2_.plan(start_q2, start_v2, q2, t2);
+        traj_q3_.plan(start_q3, start_v3, q3, t3);
     }
 
     bool Controller::isArrived() const
     {
-        return !traj_q1_.running && !traj_q2_.running;
-    }
-
-    void Controller::setGripper(float open_width)
-    {
-        target_gripper_ = open_width;
+        return !traj_q1_.running && !traj_q2_.running && !traj_q3_.running;
     }
 
     void Controller::update(float dt)
     {
         // 1. 计算轨迹生成的新目标状态
-        float q1_vel_ref, q2_vel_ref;
+        float q1_vel_ref, q2_vel_ref, q3_vel_ref;
 
         traj_q1_.step(dt, current_q1_ref_, q1_vel_ref);
         traj_q2_.step(dt, current_q2_ref_, q2_vel_ref);
+        traj_q3_.step(dt, current_q3_ref_, q3_vel_ref);
 
         // 2. 计算重力补偿力矩 (需要弧度)
         float q1_rad = current_q1_ref_ * DEG_TO_RAD;
         float q2_rad = current_q2_ref_ * DEG_TO_RAD;
+        float q3_rad = current_q3_ref_ * DEG_TO_RAD;
 
         float tau1_g = 0.0f;
         float tau2_g = 0.0f;
-        calculateGravityComp(q1_rad, q2_rad, tau1_g, tau2_g);
+        calculateGravityComp(q1_rad, q2_rad, q3_rad, tau1_g, tau2_g);
 
         // 3. 更新关节电机目标 (位置 + 前馈力矩)
         // setTarget 接受度数
-        joint1_.setTarget(current_q1_ref_, tau1_g);
-        joint2_.setTarget(current_q2_ref_, tau2_g);
-
-        // 4. 更新夹爪电机
-        gripper_.setTarget(target_gripper_, 0.0f);
+        // 电机目标角度 = 关节目标角度 * 减速比
+        // 电机前馈力矩 = 关节前馈力矩 / 减速比
+        joint1_.setTarget(current_q1_ref_ * config_.reduction_1, tau1_g / config_.reduction_1);
+        joint2_.setTarget(current_q2_ref_ * config_.reduction_2, tau2_g / config_.reduction_2);
+        joint3_.setTarget(current_q3_ref_ * config_.reduction_3, 0.0f);
 
         // 5. 执行底层控制更新
         joint1_.update();
         joint2_.update();
-        gripper_.update();
+        joint3_.update();
     }
 
-    void Controller::getEndEffectorPose(float& x, float& y) const
+    void Controller::getEndEffectorPose(float& x, float& y, float& phi) const
     {
-        float q1 = joint1_.getAngle(); // 弧度
-        float q2 = joint2_.getAngle(); // 弧度
+        // 关节角度 = 电机角度 / 减速比
+        float q1 = (joint1_.getAngle() / config_.reduction_1); // 弧度
+        float q2 = (joint2_.getAngle() / config_.reduction_2); // 弧度
+        float q3 = (joint3_.getAngle() / config_.reduction_3); // 弧度
 
         float l1 = config_.l1;
         float l2 = config_.l2;
 
-        x = l1 * cosf(q1) + l2 * cosf(q1 + q2);
-        y = l1 * sinf(q1) + l2 * sinf(q1 + q2);
+        // 平面 2-DOF 机械臂
+        float q12  = q1 + q2;
+        float q123 = q1 + q2 + q3;
+
+        // x = l1 * cosf(q1) + l2 * cosf(q12) + l3 * cosf(q123);
+        // y = l1 * sinf(q1) + l2 * sinf(q12) + l3 * sinf(q123);
+
+        x   = l1 * cosf(q1) + l2 * cosf(q12);
+        y   = l1 * sinf(q1) + l2 * sinf(q12);
+        phi = q123;
     }
 
-    void Controller::getJointAngles(float& q1, float& q2) const
+    void Controller::getJointAngles(float& q1, float& q2, float& q3) const
     {
-        q1 = joint1_.getAngle();
-        q2 = joint2_.getAngle();
+        // 关节角度 = 电机角度 / 减速比
+        q1 = (joint1_.getAngle() / config_.reduction_1);
+        q2 = (joint2_.getAngle() / config_.reduction_2);
+        q3 = (joint3_.getAngle() / config_.reduction_3);
     }
 
-    void Controller::calculateGravityComp(float q1, float q2, float& tau1, float& tau2)
+    void Controller::calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2)
     {
         // 动力学参数
         float m1  = config_.m1;
         float m2  = config_.m2;
-        float mg  = config_.m_gripper;
+        float m3  = config_.m3; // 吸盘关节+吸盘质量
         float l1  = config_.l1;
+        float l2  = config_.l2;
         float lc1 = config_.lc1;
         float lc2 = config_.lc2;
         float g   = config_.g;
 
-        // 关节 2 (小臂) 的重力矩
-        // 负载包括: 小臂自重 + 夹爪(末端负载)
-        // T2 = m2 * g * lc2 * cos(q1 + q2) + mg * g * l2 * cos(q1 + q2)
-        // 注意: 角度定义假设水平向右为 0 度，逆时针为正
-        float cos_q12 = cosf(q1 + q2);
-        tau2          = (m2 * lc2 + mg * config_.l2) * g * cos_q12;
+        float c1  = cosf(q1);
+        float c12 = cosf(q1 + q2);
 
-        // 关节 1 (大臂) 的重力矩
-        // 负载包括: 大臂自重 + 小臂自重 + 夹爪
-        // T1 = m1 * g * lc1 * cos(q1) + T2_projected_to_joint1
-        // 更精确的拉格朗日动力学推导:
-        // T1 = (m1 * lc1 + m2 * l1 + mg * l1) * g * cos(q1) + (m2 * lc2 + mg * l2) * g * cos(q1 + q2)
+        // 吸盘关节 (Joint 3): 仅受自身重力矩影响
+        //    T3 = m3 * g * lc3 * cos(q1 + q2 + q3)
 
-        float cos_q1 = cosf(q1);
-        tau1         = (m1 * lc1 + m2 * l1 + mg * l1) * g * cos_q1 + tau2;
+        // 小臂 (Joint 2)
+        //    忽略 l3 长度，认为 m3 挂在 l2 末端
+        //    T2 = m2 * g * lc2 * cos(q1 + q2) + m3 * g * l2 * cos(q1 + q2)
+        float term2 = (m2 * lc2 + m3 * l2) * g * c12;
+        tau2        = term2;
+
+        // 大臂 (Joint 1)
+        //    T1_gravity = (m1*lc1 + m2*l1 + m3*l1) * g * cos(q1) + T2
+        float term1 = (m1 * lc1 + m2 * l1 + m3 * l1) * g * c1;
+        tau1        = term1 + term2;
     }
 
 } // namespace Arm

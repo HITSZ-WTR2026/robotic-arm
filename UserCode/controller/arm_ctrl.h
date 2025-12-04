@@ -27,20 +27,26 @@ namespace Arm
             // 连杆质量 (kg)
             float m1;
             float m2;
-            float m_gripper; // 夹爪质量 (视为小臂末端的点质量)
+            float m3; // 吸盘关节+吸盘质量
 
             // 重力加速度
             float g;
+
+            // 减速比 (电机转动圈数 / 关节转动圈数)
+            // 例如: 减速比为 10 表示电机转 10 圈，关节转 1 圈
+            float reduction_1;
+            float reduction_2;
+            float reduction_3;
         };
 
         /**
          * @brief 构造函数
          * @param joint1 大臂电机 (Unitree)
          * @param joint2 小臂电机 (DJI 3508)
-         * @param gripper 夹爪电机 (DJI 2006)
+         * @param joint3 吸盘关节电机 (DJI 2006)
          * @param config 机械臂物理参数
          */
-        Controller(Motor& joint1, Motor& joint2, Motor& gripper, const Config& config);
+        Controller(Motor& joint1, Motor& joint2, Motor& joint3, const Config& config);
 
         /**
          * @brief 初始化控制器
@@ -51,22 +57,18 @@ namespace Arm
          * @brief 设置关节目标角度 (关节空间控制)
          * @param q1 大臂目标角度 (degree)
          * @param q2 小臂目标角度 (degree)
+         * @param q3 吸盘关节目标角度 (degree)
          * @param t1 大臂运动时间 (s)
          * @param t2 小臂运动时间 (s)
+         * @param t3 吸盘关节运动时间 (s)
          */
-        void setJointTarget(float q1, float q2, float t1, float t2);
+        void setJointTarget(float q1, float q2, float q3, float t1, float t2, float t3);
 
         /**
          * @brief 查询关节是否都已到达目标
          * @return true 已到达, false 运动中
          */
         bool isArrived() const;
-
-        /**
-         * @brief 控制夹爪开合
-         * @param open_width 开合宽度或角度 (根据具体夹爪实现定义)
-         */
-        void setGripper(float open_width);
 
         /**
          * @brief 更新控制回路 (需周期性调用)
@@ -79,13 +81,14 @@ namespace Arm
          * @brief 正运动学求解 (FK)
          * @param x [out] 末端 X 坐标 (m)
          * @param y [out] 末端 Y 坐标 (m)
+         * @param phi [out] 末端姿态角 (rad)
          */
-        void getEndEffectorPose(float& x, float& y) const;
+        void getEndEffectorPose(float& x, float& y, float& phi) const;
 
         /**
          * @brief 获取当前关节角度
          */
-        void getJointAngles(float& q1, float& q2) const;
+        void getJointAngles(float& q1, float& q2, float& q3) const;
 
     private:
         /**
@@ -124,23 +127,25 @@ namespace Arm
          * @brief 计算重力补偿力矩
          * @param q1 当前大臂角度
          * @param q2 当前小臂角度
+         * @param q3 当前吸盘关节角度
          * @param tau1 [out] 大臂补偿力矩
          * @param tau2 [out] 小臂补偿力矩
          */
-        void calculateGravityComp(float q1, float q2, float& tau1, float& tau2);
+        void calculateGravityComp(float q1, float q2, float q3, float& tau1, float& tau2);
 
-        Motor& joint1_;  // 大臂
-        Motor& joint2_;  // 小臂
-        Motor& gripper_; // 夹爪
+        Motor& joint1_; // 大臂
+        Motor& joint2_; // 小臂
+        Motor& joint3_; // 吸盘关节
 
         Config config_;
 
         QuinticTrajectory traj_q1_;
         QuinticTrajectory traj_q2_;
+        QuinticTrajectory traj_q3_;
 
         float current_q1_ref_; // 当前规划的位置参考值
         float current_q2_ref_;
-        float target_gripper_;
+        float current_q3_ref_;
     };
 
 } // namespace Arm
